@@ -1,0 +1,19 @@
+:root{
+  --shadow: 0 8px 24px rgba(0,0,0,.08);
+}
+.table tbody tr:hover { background-color: #f8f9fa; }
+.sortable { user-select: none; cursor: pointer; }
+.loading {
+  position: fixed;
+  right: 1rem;
+  top: 5.5rem;
+  z-index: 1050;
+  display: inline-flex;
+  align-items: center;
+  padding: .5rem .75rem;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.075);
+  border-radius: .5rem;
+  box-shadow: var(--shadow);
+}
+.card { box-shadow: var(--shadow); }

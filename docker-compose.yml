@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  # Service PostgreSQL
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: webapp_user
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: webapp
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  # Service NodeJS webapp
+  web:
+    build: .
+    restart: always
+    depends_on:
+      - db
+    environment:
+      PGUSER: webapp_user
+      PGPASSWORD: yourpassword
+      PGDATABASE: webapp
+      PGHOST: db
+      PGPORT: 5432
+    ports:
+      - "3000:3000"
+    command: ["node", "script.js"]
+
+  # Service Nginx reverse proxy
+  nginx:
+    image: nginx:latest
+    restart: always
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  db_data:
