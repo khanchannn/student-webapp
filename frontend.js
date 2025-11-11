@@ -3,7 +3,7 @@
   const $$ = (sel) => document.querySelectorAll(sel);
 
   // Toast helper (Bootstrap)
-  const toast = (message, variant='success') => {
+  const toast = (message, variant = 'success') => {
     const container = document.querySelector('#toastContainer') || (() => {
       const div = document.createElement('div');
       div.id = 'toastContainer';
@@ -60,15 +60,34 @@
         const res = await fetch(`/students?${buildQuery()}`);
         const data = await res.json();
         renderRows(data);
-        // Cố ý XSS: phản chiếu chuỗi tìm kiếm trực tiếp vào HTML
+        // XSS: phản chiếu chuỗi tìm kiếm trực tiếp vào HTML
+        //     const r = $('#reflect');
+        //     if (state.search) {
+        //       r.classList.remove('d-none');
+        //       r.innerHTML = `Kết quả cho: <b>${state.search}</b>`;
+        //     } else {
+        //       r.classList.add('d-none');
+        //       r.innerHTML = '';
+        //     }
+        //   } catch (e) {
+        //     toast('Không thể tải danh sách sinh viên', 'danger');
+        //   } finally {
+        //     setLoading(false);
+        //   }
+        // };
+        // ❌ CŨ (GÂY XSS): chèn trực tiếp input người dùng vào HTML
+
+
+        // ✅ FIX: dùng textContent để hiển thị an toàn, không render HTML
         const r = $('#reflect');
         if (state.search) {
           r.classList.remove('d-none');
-          r.innerHTML = `Kết quả cho: <b>${state.search}</b>`;
+          r.textContent = `Kết quả cho: ${state.search}`;
         } else {
           r.classList.add('d-none');
-          r.innerHTML = '';
+          r.textContent = '';
         }
+
       } catch (e) {
         toast('Không thể tải danh sách sinh viên', 'danger');
       } finally {
@@ -82,21 +101,55 @@
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Không có dữ liệu</td></tr>';
         return;
       }
-      // Cố ý KHÔNG escape -> XSS
-      tbody.innerHTML = rows.map(r => `
-        <tr data-id="${r.id}">
-          <td>${r.id}</td>
-          <td>${r.name}</td>
-          <td><span class="badge text-bg-secondary">${r.branch}</span></td>
-          <td>${r.semester}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
-            <button class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
-          </td>
-        </tr>`).join('');
+      //   // KHÔNG escape -> XSS
+      //   tbody.innerHTML = rows.map(r => `
+      //     <tr data-id="${r.id}">
+      //       <td>${r.id}</td>
+      //       <td>${r.name}</td>
+      //       <td><span class="badge text-bg-secondary">${r.branch}</span></td>
+      //       <td>${r.semester}</td>
+      //       <td class="text-end">
+      //         <button class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
+      //         <button class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
+      //       </td>
+      //     </tr>`).join('');
+      // };
+
+      // ❌ CŨ (GÂY XSS): render trực tiếp dữ liệu user vào HTML
+      // ✅ FIX: tạo phần tử DOM an toàn và dùng textContent để gán dữ liệu
+      tbody.innerHTML = '';
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.dataset.id = r.id;
+
+        const idTd = document.createElement('td');
+        idTd.textContent = r.id;
+
+        const nameTd = document.createElement('td');
+        nameTd.textContent = r.name; // không cho phép HTML thực thi
+
+        const branchTd = document.createElement('td');
+        const span = document.createElement('span');
+        span.className = 'badge text-bg-secondary';
+        span.textContent = r.branch;
+        branchTd.appendChild(span);
+
+        const semesterTd = document.createElement('td');
+        semesterTd.textContent = r.semester;
+
+        const actionTd = document.createElement('td');
+        actionTd.className = 'text-end';
+        actionTd.innerHTML = `
+          <button class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
+          <button class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
+        `;
+
+        tr.append(idTd, nameTd, branchTd, semesterTd, actionTd);
+        tbody.appendChild(tr);
+      });
     };
 
-    const openModal = (mode, record=null) => {
+    const openModal = (mode, record = null) => {
       $('#modalTitle').textContent = mode === 'create' ? 'Thêm sinh viên' : 'Chỉnh sửa sinh viên';
       $('#studentId').value = record?.id ?? '';
       $('#nameInput').value = record?.name ?? '';
@@ -147,7 +200,8 @@
         const tds = row.querySelectorAll('td');
         openModal('edit', {
           id,
-          name: tds[1].innerHTML.trim(), // cố ý lấy innerHTML (giữ XSS)
+          // name: tds[1].innerHTML.trim(), // cố ý lấy innerHTML (giữ XSS)
+                  // ✅ FIX: chỉ lấy textContent (chỉ văn bản, không chứa HTML)
           branch: tds[2].innerText.trim(),
           semester: tds[3].textContent.trim()
         });
@@ -182,7 +236,7 @@
       });
     };
 
-    const debounce = (fn, ms=350) => {
+    const debounce = (fn, ms = 350) => {
       let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
     };
 
@@ -263,8 +317,20 @@
   };
 
   document.addEventListener('DOMContentLoaded', () => {
-    try { initIndex(); } catch {}
-    try { initLogin(); } catch {}
-    try { initUpload(); } catch {}
+    try { initIndex(); } catch { }
+    try { initLogin(); } catch { }
+    try { initUpload(); } catch { }
   });
 })();
+
+// ========== LOGOUT ==========
+document.addEventListener('DOMContentLoaded', () => {
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      // Xóa cookie thủ công (vì không có secure logout)
+      document.cookie = 'auth=; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      location.href = '/login.html';
+    });
+  }
+});
