@@ -47,6 +47,31 @@ function requireLogin(req, res, next) {
   next();
 }
 
+// ===== User Registration =====
+app.post('/register', async (req, res) => {
+  const { username = '', password = '' } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Thiếu username hoặc password' });
+  }
+  try {
+    const checkSql = `SELECT id FROM users WHERE username='${username}' LIMIT 1;`;
+    const check = await pool.query(checkSql);
+    if (check.rows && check.rows.length) {
+      return res.status(409).json({ error: 'Tên người dùng đã tồn tại' });
+    }
+    const insertSql = `INSERT INTO users (username, password)
+                       VALUES ('${username}', '${password}') RETURNING id;`;
+    const result = await pool.query(insertSql);
+    if (result.rows && result.rows.length) {
+      return res.json({ ok: true });
+    }
+    return res.status(500).json({ error: 'Không thể tạo người dùng' });
+  } catch (e) {
+    console.error('POST /register', e);
+    return res.status(500).json({ error: 'Lỗi máy chủ' });
+  }
+});
+
 // ===== Broken Auth: plaintext passwords + weak cookie =====
 app.post('/login', async (req, res) => {
   const { username = '', password = '' } = req.body || {};

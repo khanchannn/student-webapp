@@ -240,6 +240,38 @@
       msg.classList.remove('d-none');
     });
   };
+  const initRegister = () => {
+    const form = document.querySelector('#registerForm');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      let res, data;
+      try {
+        res = await fetch('/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        try { data = await res.json(); } catch { data = {}; }
+      } catch (err) {
+        data = { error: 'Không thể kết nối máy chủ' };
+      }
+      const msg = $('#msg');
+      if (res && res.ok && data && data.ok) {
+        msg.className = 'alert alert-success';
+        msg.textContent = 'Đăng ký thành công! Chuyển đến trang đăng nhập...';
+        msg.classList.remove('d-none');
+        setTimeout(() => location.href = '/login.html', 1000);
+      } else {
+        msg.className = 'alert alert-danger';
+        msg.textContent = (data && data.error) ? data.error : 'Đăng ký thất bại';
+        msg.classList.remove('d-none');
+      }
+    });
+  };
+
 
   const initUpload = () => {
     const form = $('#uploadForm');
@@ -280,6 +312,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     try { initIndex(); } catch {}
     try { initLogin(); } catch {}
+    try { initRegister(); } catch {}
     try { initUpload(); } catch {}
   });
 })();
