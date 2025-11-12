@@ -2,7 +2,6 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  // Toast helper (Bootstrap)
   const toast = (message, variant = 'success') => {
     const container = document.querySelector('#toastContainer') || (() => {
       const div = document.createElement('div');
@@ -26,7 +25,6 @@
     el.addEventListener('hidden.bs.toast', () => el.remove());
   };
 
-  // ========== INDEX PAGE ==========
   const initIndex = () => {
     if (!$('#studentsTable')) return;
 
@@ -60,25 +58,7 @@
         const res = await fetch(`/students?${buildQuery()}`);
         const data = await res.json();
         renderRows(data);
-        // XSS: phản chiếu chuỗi tìm kiếm trực tiếp vào HTML
-        //     const r = $('#reflect');
-        //     if (state.search) {
-        //       r.classList.remove('d-none');
-        //       r.innerHTML = `Kết quả cho: <b>${state.search}</b>`;
-        //     } else {
-        //       r.classList.add('d-none');
-        //       r.innerHTML = '';
-        //     }
-        //   } catch (e) {
-        //     toast('Không thể tải danh sách sinh viên', 'danger');
-        //   } finally {
-        //     setLoading(false);
-        //   }
-        // };
-        // ❌ CŨ (GÂY XSS): chèn trực tiếp input người dùng vào HTML
 
-
-        // ✅ FIX: dùng textContent để hiển thị an toàn, không render HTML
         const r = $('#reflect');
         if (state.search) {
           r.classList.remove('d-none');
@@ -87,8 +67,8 @@
           r.classList.add('d-none');
           r.textContent = '';
         }
-
       } catch (e) {
+        console.error('fetchStudents error', e);
         toast('Không thể tải danh sách sinh viên', 'danger');
       } finally {
         setLoading(false);
@@ -101,32 +81,17 @@
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Không có dữ liệu</td></tr>';
         return;
       }
-      //   // KHÔNG escape -> XSS
-      //   tbody.innerHTML = rows.map(r => `
-      //     <tr data-id="${r.id}">
-      //       <td>${r.id}</td>
-      //       <td>${r.name}</td>
-      //       <td><span class="badge text-bg-secondary">${r.branch}</span></td>
-      //       <td>${r.semester}</td>
-      //       <td class="text-end">
-      //         <button class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
-      //         <button class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
-      //       </td>
-      //     </tr>`).join('');
-      // };
 
-      // ❌ CŨ (GÂY XSS): render trực tiếp dữ liệu user vào HTML
-      // ✅ FIX: tạo phần tử DOM an toàn và dùng textContent để gán dữ liệu
       tbody.innerHTML = '';
       rows.forEach(r => {
         const tr = document.createElement('tr');
-        tr.dataset.id = r.id;
+        tr.dataset.id = String(r.id);
 
         const idTd = document.createElement('td');
         idTd.textContent = r.id;
 
         const nameTd = document.createElement('td');
-        nameTd.textContent = r.name; // không cho phép HTML thực thi
+        nameTd.textContent = r.name;
 
         const branchTd = document.createElement('td');
         const span = document.createElement('span');
@@ -140,8 +105,8 @@
         const actionTd = document.createElement('td');
         actionTd.className = 'text-end';
         actionTd.innerHTML = `
-          <button class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
-          <button class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
+          <button type="button" class="btn btn-sm btn-outline-primary me-2 edit-btn"><i class="bi bi-pencil-square"></i> Edit</button>
+          <button type="button" class="btn btn-sm btn-outline-danger delete-btn"><i class="bi bi-trash"></i> Delete</button>
         `;
 
         tr.append(idTd, nameTd, branchTd, semesterTd, actionTd);
@@ -200,8 +165,7 @@
         const tds = row.querySelectorAll('td');
         openModal('edit', {
           id,
-          // name: tds[1].innerHTML.trim(), // cố ý lấy innerHTML (giữ XSS)
-                  // ✅ FIX: chỉ lấy textContent (chỉ văn bản, không chứa HTML)
+          name: tds[1].textContent.trim(),
           branch: tds[2].innerText.trim(),
           semester: tds[3].textContent.trim()
         });
@@ -209,11 +173,12 @@
         if (!confirm('Xoá sinh viên này?')) return;
         try {
           setLoading(true);
-          const res = await fetch(`/students/${id}`, { method: 'DELETE' });
-          if (!res.ok) throw new Error(await res.text());
+          const res = await fetch(`/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
           toast('Đã xoá sinh viên', 'success');
           fetchStudents();
         } catch (err) {
+          console.error('delete error', err);
           toast('Xoá thất bại', 'danger');
         } finally {
           setLoading(false);
@@ -240,7 +205,6 @@
       let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
     };
 
-    // bind events
     $('#addBtn').addEventListener('click', () => openModal('create'));
     $('#studentForm').addEventListener('submit', submitForm);
     $('#studentsTable').addEventListener('click', handleTableClick);
@@ -252,7 +216,6 @@
     fetchStudents();
   };
 
-  // ========== LOGIN PAGE ==========
   const initLogin = () => {
     const form = document.querySelector('#loginForm');
     if (!form) return;
@@ -263,7 +226,6 @@
       const res = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Cố ý không dùng CSRF token
         body: JSON.stringify(payload)
       });
       const msg = $('#msg');
@@ -279,7 +241,6 @@
     });
   };
 
-  // ========== UPLOAD PAGE ==========
   const initUpload = () => {
     const form = $('#uploadForm');
     if (!form) return;
@@ -300,7 +261,7 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      const res = await fetch('/upload', { method: 'POST', body: fd }); // không hạn chế loại/kích thước
+      const res = await fetch('/upload', { method: 'POST', body: fd });
       if (res.ok) {
         msg.className = 'alert alert-success';
         msg.textContent = 'Upload thành công';
@@ -317,18 +278,16 @@
   };
 
   document.addEventListener('DOMContentLoaded', () => {
-    try { initIndex(); } catch { }
-    try { initLogin(); } catch { }
-    try { initUpload(); } catch { }
+    try { initIndex(); } catch {}
+    try { initLogin(); } catch {}
+    try { initUpload(); } catch {}
   });
 })();
 
-// ========== LOGOUT ==========
 document.addEventListener('DOMContentLoaded', () => {
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
-      // Xóa cookie thủ công (vì không có secure logout)
       document.cookie = 'auth=; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
       location.href = '/login.html';
     });
