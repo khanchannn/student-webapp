@@ -6,8 +6,13 @@ const { Pool } = require('pg');
 const multer = require('multer'); // for unrestricted upload (no filter)
 const bodyParser = require('body-parser');
 
+// === [CSRF & Cookies] ===
+const cookieParser = require('cookie-parser');
+const csrf = require('csurf');
+
 const app = express();
 const port = 3000;
+const isProd = process.env.NODE_ENV === 'production';
 
 // ===== Database (adjust to your local settings) =====
 const pool = new Pool({
@@ -21,6 +26,18 @@ const pool = new Pool({
 // ===== Middleware =====
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: false }));
+app.use(cookieParser());
+
+// CSRF protection (token lưu bằng cookie httpOnly + SameSite=Strict)
+const csrfProtection = csrf({
+  cookie: {
+    key: '_csrf',
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: isProd, // bật Secure khi chạy HTTPS/production
+  },
+  // ignoreMethods mặc định: ['GET','HEAD','OPTIONS']
+});
 
 // ======== Simple auth helper ========
 // cookie parser (rất đơn giản, không an toàn - intentionally insecure)
@@ -32,9 +49,7 @@ const parseCookies = (cookieHeader = '') =>
       .filter(Boolean)
       .map(kv => {
         const i = kv.indexOf('=');
-        return i === -1
-          ? [kv, '']
-          : [kv.slice(0, i), decodeURIComponent(kv.slice(i + 1))];
+        return i === -1 ? [kv, ''] : [kv.slice(0, i), decodeURIComponent(kv.slice(i + 1))];
       })
   );
 
@@ -59,8 +74,7 @@ app.post('/register', async (req, res) => {
     if (check.rows && check.rows.length) {
       return res.status(409).json({ error: 'Tên người dùng đã tồn tại' });
     }
-    const insertSql = `INSERT INTO users (username, password)
-                       VALUES ('${username}', '${password}') RETURNING id;`;
+    const insertSql = `INSERT INTO users (username, password) VALUES ('${username}', '${password}') RETURNING id;`;
     const result = await pool.query(insertSql);
     if (result.rows && result.rows.length) {
       return res.json({ ok: true });
@@ -72,7 +86,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// ===== Broken Auth: plaintext passwords + weak cookie =====
+// ===== Broken Auth: plaintext passwords + weak cookie (đã cứng hoá) =====
 app.post('/login', async (req, res) => {
   const { username = '', password = '' } = req.body || {};
   try {
@@ -83,8 +97,11 @@ app.post('/login', async (req, res) => {
     if (!user || user.password !== password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    // set trivial cookie "auth=username" (no HttpOnly/SameSite/Secure)
-    res.setHeader('Set-Cookie', `auth=${encodeURIComponent(user.username)}; Path=/`);
+    // cookie an toàn hơn: HttpOnly + SameSite=Strict (+ Secure nếu prod)
+    const flags = ['Path=/', 'HttpOnly', 'SameSite=Strict'];
+    if (isProd) flags.push('Secure');
+    res.setHeader('Set-Cookie', `auth=${encodeURIComponent(user.username)}; ${flags.join('; ')}`);
+
     return res.json({ ok: true, user: { id: user.id, username: user.username } });
   } catch (e) {
     console.error('POST /login', e);
@@ -98,17 +115,21 @@ app.get('/me', (req, res) => {
   res.json({ auth: cookies.auth || null });
 });
 
+// ===== CSRF token endpoint (client gọi để lấy token trước khi POST/PUT/DELETE) =====
+app.get('/csrf-token', requireLogin, csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
 // ===== Students CRUD (IDOR + SQLi) =====
 app.get('/students', requireLogin, async (req, res) => {
   const { search = '', branch = '', semester = '', sortBy = 'id', order = 'asc' } = req.query;
-  let sql = `SELECT id, name, branch, semester FROM student`;
+  let sql = 'SELECT id, name, branch, semester FROM student';
   const conds = [];
   if (search) conds.push(`(name ILIKE '%${search}%' OR branch ILIKE '%${search}%')`);
   if (branch) conds.push(`branch='${branch}'`);
   if (semester) conds.push(`semester=${semester}`);
   if (conds.length) sql += ` WHERE ${conds.join(' AND ')}`;
   sql += ` ORDER BY ${sortBy} ${order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'};`;
-
   try {
     const { rows } = await pool.query(sql);
     res.json(rows);
@@ -118,11 +139,9 @@ app.get('/students', requireLogin, async (req, res) => {
   }
 });
 
-app.post('/students', requireLogin, async (req, res) => {
+app.post('/students', requireLogin, csrfProtection, async (req, res) => {
   const { name = '', branch = '', semester = '' } = req.body || {};
-  const sql = `INSERT INTO student (name, branch, semester)
-               VALUES ('${name}', '${branch}', ${semester})
-               RETURNING id, name, branch, semester;`;
+  const sql = `INSERT INTO student (name, branch, semester) VALUES ('${name}', '${branch}', ${semester}) RETURNING id, name, branch, semester;`;
   try {
     const { rows } = await pool.query(sql);
     res.status(201).json(rows[0]);
@@ -132,7 +151,7 @@ app.post('/students', requireLogin, async (req, res) => {
   }
 });
 
-app.put('/students/:id', requireLogin, async (req, res) => {
+app.put('/students/:id', requireLogin, csrfProtection, async (req, res) => {
   const id = req.params.id;
   const { name, branch, semester } = req.body || {};
   const fields = [];
@@ -140,7 +159,6 @@ app.put('/students/:id', requireLogin, async (req, res) => {
   if (branch !== undefined) fields.push(`branch='${branch}'`);
   if (semester !== undefined) fields.push(`semester=${semester}`);
   if (!fields.length) return res.status(400).json({ error: 'No fields' });
-
   const sql = `UPDATE student SET ${fields.join(', ')} WHERE id=${id} RETURNING id, name, branch, semester;`;
   try {
     const { rows } = await pool.query(sql);
@@ -152,7 +170,7 @@ app.put('/students/:id', requireLogin, async (req, res) => {
   }
 });
 
-app.delete('/students/:id', requireLogin, async (req, res) => {
+app.delete('/students/:id', requireLogin, csrfProtection, async (req, res) => {
   const id = req.params.id;
   const sql = `DELETE FROM student WHERE id=${id};`;
   try {
@@ -170,11 +188,12 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => cb(null, file.originalname)
+  filename: (req, file, cb) => cb(null, file.originalname),
 });
 const upload = multer({ storage });
 
-app.post('/upload', requireLogin, upload.single('file'), (req, res) => {
+// Với multipart/form-data, hãy gửi CSRF token qua header (vd: X-CSRF-Token)
+app.post('/upload', requireLogin, csrfProtection, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   res.json({ ok: true, file: req.file.originalname, path: `/uploads/${req.file.originalname}` });
 });
@@ -199,9 +218,7 @@ app.get('/', (req, res) => {
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.get('/login.html', (_, res) =>
-  res.sendFile(path.join(__dirname, 'login.html'))
-);
+app.get('/login.html', (_, res) => res.sendFile(path.join(__dirname, 'login.html')));
 
 app.get('/upload.html', (req, res) => {
   const cookies = parseCookies(req.headers.cookie || '');
